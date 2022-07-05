@@ -1,0 +1,74 @@
+name: Generate
+
+on:
+  push:
+    branches:
+      - main
+    tags-ignore:
+      - "**"
+    # paths-ignore:
+    #   - ".github/**"
+
+jobs:
+  generate-schema:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out AWX
+        uses: actions/checkout@v3
+        with:
+          repository: ansible/awx
+          ref: "21.2.0"
+          fetch-depth: 0
+
+      - name: Generate AWX openAPI schema
+        run: |
+          COMPOSE_TAG="devel" make docker-compose-build-swagger
+
+      - name: Upload swagger api
+        uses: actions/upload-artifact@v3
+        with:
+          path: swagger.json
+          name: api
+          if-no-files-found: error
+
+  create-client:
+    runs-on: ubuntu-latest
+    needs:
+      - generate-schema
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          # cache: true
+          go-version: "1.18"
+          # go-version-file: "go.mod"
+
+      - name: Remove old schema
+        run: rm api/swagger.json
+
+      - name: Download api doc
+        uses: actions/download-artifact@v3
+        with:
+          name: api
+          path: api/
+
+      - name: Generate Go client using openapi generate
+        run: |
+          make
+      - name: Cleanup generated code
+        run: |
+          rm .travis.yml
+          go get
+          go fmt .
+          go mod tidy
+
+      - name: Commit and tag repo
+        uses: EndBug/add-and-commit@v9
+        with:
+          author_name: "AWX client bot"
+          author_email: "bot@github.com"
+          message: "Update API client [skip ci]"
+          new_branch: "testing"
+          # tag: "21.2.0"
